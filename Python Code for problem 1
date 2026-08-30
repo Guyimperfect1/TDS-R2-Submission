@@ -1,0 +1,266 @@
+# BIKE SHARING DEMAND - SIMPLE BEGINNER PIPELINE
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+ 
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.metrics import (mean_absolute_error, root_mean_squared_error, r2_score,
+                              accuracy_score, confusion_matrix)
+   
+np.random.seed(42)  # so results are the same every time 
+n  = 400
+   
+months = np.random.randint(1, 13, size=n)
+days = np.random.randint(1, 28, size=n)
+hours = np.random.randint(0, 24, size=n)
+years = [2026] * n
+       
+df = pd.DataFrame({
+    'year': years,
+    'month': months,
+    'day': days,
+    'hour': hours
+})       
+df['datetime'] = pd.to_datetime(df[['year', 'month', 'day', 'hour']])
+df = df.sort_values('datetime').reset_index(drop=True)
+       
+# season:
+df['season'] = ((df['month'] - 1) // 3) + 1
+season_names = {1: 'winter', 2: 'spring', 3: 'summer', 4: 'fall'}
+df['season'] = df['season'].map(season_names)
+   
+# weather:
+df['weather'] = np.random.choice(['clear', 'cloudy', 'rainy'], size=n, p=[0.6, 0.3, 0.1])
+
+# holiday and workingday. 
+df['holiday'] = np.random.choice([0, 1], size=n, p=[0.95, 0.05])
+df['dayofweek'] = df['datetime'].dt.dayofweek
+df['workingday'] = np.where(df['dayofweek'] < 5, 1, 0)
+
+# temperature: warmer in summer, colder in winter, plus some random noise
+month_avg_temp = {1: 5, 2: 6, 3: 10, 4: 15, 5: 20, 6: 25,
+                   7: 28, 8: 27, 9: 22, 10: 16, 11: 10, 12: 6}
+df['temp'] = df['month'].map(month_avg_temp) + np.random.normal(0, 3, n)
+df['temp'] = df['temp'].round(1)
+       
+# humidity and wind_speed: mostly random, slightly higher humidity when rainy
+df['humidity'] =  np.random.randint(30, 90, size=n).astype(float)
+df.loc[df['weather'] == 'rainy', 'humidity'] += 10
+df['wind_speed'] = np.round(np.random.uniform(0, 20, size=n), 1)
+
+df['hour_sin'] = np.sin(2 * np.pi * df['hour'] / 24)
+df['hour_cos'] = np.cos(2 * np.pi * df['hour'] / 24)
+
+# Mujhe yaha tak samaj agaya
+
+weather_effect = df['weather'].map({'clear': 10, 'cloudy': 0, 'rainy': -15})
+count_mean = (
+    60
+    + 2.2 * df['temp']
+    - 0.5 * df['humidity']
+    - 0.8 * df['wind_speed']
+    + 25 * df['hour_sin'] + 15 * df['hour_cos']
+    + 15 * df['workingday']
+    - 10 * df['holiday']
+    + weather_effect
+)
+noise = np.random.normal(0, 12, n)
+
+df['count'] = np.clip(count_mean + noise, 5, None).round().astype(int)
+
+#ye topic simple hai
+df['registered'] = (df['count'] * 0.7).round().astype(int)
+
+df['casual'] = df['count'] - df['registered']
+
+print("=" * 60)
+print("STEP 1: DATASET LOADED")
+print("=" * 60)
+print(df.head())
+print("...")
+print(df.tail())
+print(f"\nShape: {df.shape}")
+ 
+  
+print("\n" + "=" * 60)
+print("STEP 2: EXPLORE THE DATA")
+print("=" * 60)
+print(df.dtypes)
+print("\nBasic statistics:")
+print(df.describe())
+
+print("\nUnique values in 'season':", df['season'].unique())
+print("Unique values in 'weather':", df['weather'].unique())
+
+ 
+print("\n" + "=" * 60) 
+print("STEP 3: CLEAN THE DATA")
+print("=" * 60)   
+ # ye neeche ki 3 line samajhni hai
+print("Missing values before cleaning:")
+print(df.isnull().sum()[df.isnull().sum() > 0])
+
+
+df['humidity'] = df['humidity'].fillna(df['humidity'].mean())
+#ye samajh agaya shayad
+duplicates_found = df.duplicated().sum()
+print(f"\nDuplicate rows found: {duplicates_found}")
+df =  df.drop_duplicates().reset_index(drop=True)
+        
+print(f"Shape after cleaning: {df.shape}")
+ 
+ 
+print("\n" + "=" * 60)
+print("STEP 4: CREATE PLOTS")
+print("=" * 60)
+#plots are simple
+# Plot 1:  distribution of count
+plt.figure(figsize=(7, 4))
+plt.hist(df['count'], bins=25, color='steelblue')
+plt.title('Distribution of Bike Rental Count')
+plt.xlabel('Count') 
+plt.ylabel('Number of Hours')
+plt.savefig('plot1_distribution.png', bbox_inches='tight')
+plt.close()       
+print("Saved plot1_distribution.png")
+print(f"Observation: count ranges from {df['count'].min()} to {df['count'].max()}.")
+# Plot 2: temperature  vs count
+plt.figure(figsize=(7, 4))
+plt.scatter(df['temp'], df['count'], alpha=0.4, color='darkorange')
+plt.title('Temperature vs. Bike Rental Count')
+plt.xlabel('Temperature (C)')
+plt.ylabel('Count')
+plt.savefig('plot2_temp_vs_count.png', bbox_inches='tight')
+plt.close() 
+print("Saved plot2_temp_vs_count.png")     
+corr = df['temp'].corr(df['count'])         
+print(f"Observation: correlation between temp and count is {corr:.2f} (positive = warmer means more rentals).")
+       
+# Plot 3: average count by hour of day      
+avg_by_hour = df.groupby('hour')['count'].mean()
+plt.figure(figsize=(7, 4))       
+plt.plot(avg_by_hour.index, avg_by_hour.values, marker='o', color='seagreen')
+plt.title('Average Count by Hour of Day')
+plt.xlabel('Hour')        
+plt.ylabel('Average Count')
+plt.savefig('plot3_count_by_hour.png', bbox_inches='tight')
+plt.close()      
+print("Saved plot3_count_by_hour.png")
+busiest_hour = avg_by_hour.idxmax()        
+print(f"Observation: the busiest hour on average is {busiest_hour}:00.")
+# PREPARING DATA FOR MACHINE LEARNING
+
+print("\n" + "=" * 60)         
+print("STEP 5: PREPARE DATA FOR MODELS")
+print("=" * 60)         
+       
+df['month'] = df['datetime'].dt.month  # already have this, kept for clarity
+
+l = ['season', 'holiday', 'workingday', 'weather', 'temp',
+                    'humidity', 'wind_speed', 'hour_sin', 'hour_cos', 'dayofweek']
+X = df[l]
+y = df['count']      
+
+# Turn text categories (season, weather) into numeric 0/1 columns
+X = pd.get_dummies(X, columns=['season', 'weather'])
+         
+# Split into training data (80%) and testing data (20%)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+print(f"Training rows: {len(X_train)}, Testing rows: {len(X_test)}")
+
+# Scale features (needed for Linear Regression, Logistic Regression, and KNN)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+# TRAIN AND EVALUATE ALL 5 MODELS
+print("\n" + "=" * 60)   
+print("STEP 6: TRAIN 5 MODELS")
+print("=" * 60)  
+
+results ={} 
+#models nahi aate
+# Model A: Linear Regression 
+lin_model =  LinearRegression()
+lin_model.fit(X_train_scaled, y_train)
+lin_predictions = lin_model.predict(X_test_scaled)
+lin_rmse =  root_mean_squared_error(y_test, lin_predictions)
+lin_r2 = r2_score(y_test, lin_predictions)
+results['Linear Regression'] = {'RMSE': lin_rmse, 'R2': lin_r2}
+print(f"A) Linear Regression       -> RMSE: {lin_rmse:.2f}, R2: {lin_r2:.2f}")
+
+# Model 2: Logistic Regression    
+threshold = y_train.median()  
+y_train_binary = (y_train > threshold).astype(int)  
+y_test_binary = (y_test > threshold).astype(int)  
+ 
+log_model = LogisticRegression(max_iter=1000)
+log_model.fit(X_train_scaled, y_train_binary)
+log_predictions = log_model.predict(X_test_scaled)
+log_accuracy = accuracy_score(y_test_binary, log_predictions)
+print(f"B) Logistic Regression     -> Accuracy: {log_accuracy:.2f} (predicting high vs low demand)")
+print("   Confusion matrix:\n", confusion_matrix(y_test_binary, log_predictions))
+results['Logistic Regression'] = {'Accuracy': log_accuracy}
+  
+# Model 3: Decision Tree 
+tree_model = DecisionTreeRegressor(max_depth=5, random_state=42)
+tree_model.fit(X_train, y_train)  
+# trees don't have scaled data
+tree_predictions = tree_model.predict(X_test)
+tree_rmse = root_mean_squared_error(y_test, tree_predictions)
+tree_r2 = r2_score(y_test, tree_predictions)
+results['Decision Tree'] = {'RMSE': tree_rmse, 'R2': tree_r2}
+print(f"C) Decision Tree           -> RMSE: {tree_rmse:.2f}, R2: {tree_r2:.2f}")
+
+# Model 4: Random Forest 
+forest_model = RandomForestRegressor(n_estimators=100, random_state=42)
+forest_model.fit(X_train, y_train)
+forest_predictions = forest_model.predict(X_test)
+forest_rmse = root_mean_squared_error(y_test, forest_predictions)
+forest_r2 = r2_score(y_test, forest_predictions)
+results['Random Forest'] = {'RMSE': forest_rmse, 'R2': forest_r2}
+print(f"D) Random Forest           -> RMSE: {forest_rmse:.2f}, R2: {forest_r2:.2f}")
+
+# Show top 3 most important features
+importance = pd.Series(forest_model.feature_importances_, index=X.columns)
+print("   Top 3 important features:\n", importance.sort_values(ascending=False).head(3))
+
+# Model 5: K-Nearest Neighbors
+best_k = None   
+best_rmse = None
+for k in [3, 5, 7, 9]:   
+    knn_model = KNeighborsRegressor(n_neighbors=k)
+    knn_model.fit(X_train_scaled, y_train)
+    knn_predictions = knn_model.predict(X_test_scaled)
+    knn_rmse = root_mean_squared_error(y_test, knn_predictions)
+    print(f"   KNN with k={k} -> RMSE: {knn_rmse:.2f}")
+    if best_rmse is None or knn_rmse < best_rmse:
+        best_rmse = knn_rmse
+        best_k = k
+     
+knn_model = KNeighborsRegressor(n_neighbors=best_k)
+knn_model.fit(X_train_scaled, y_train)
+knn_predictions = knn_model.predict(X_test_scaled)
+knn_r2 = r2_score(y_test, knn_predictions)
+results[f'KNN (k={best_k})'] = {'RMSE': best_rmse, 'R2': knn_r2}
+print(f"E) Best KNN (k={best_k})          -> RMSE: {best_rmse:.2f}, R2: {knn_r2:.2f}")
+      
+# COMPARING ALL MODELS   
+print("\n" + "=" * 60)
+print("STEP 7: FINAL  COMPARISON")
+print("=" * 60)
+                      
+comparison_table = pd.DataFrame(results).T
+print(comparison_table)    
+
+# Finding the best regression model by R2 
+regression_only = comparison_table.dropna(subset=['R2'])        
+best_model_name = regression_only['R2'].astype(float).idxmax()
+print(f"\nBest performing regression model: {best_model_name}")
+print("(Logistic Regression is a separate classification task, so it isn't compared by R2/RMSE.)")
+
